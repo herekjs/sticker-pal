@@ -1,0 +1,61 @@
+@import "tailwindcss";
+
+:root {
+  --background: #fff8e7;
+  --foreground: #3b2f2f;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+}
+
+html {
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: "Jua", "Gaegu", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+/* 아이 화면 배경: 하늘 + 천천히 떠다니는 구름/별 */
+.kid-bg {
+  position: relative;
+  background:
+    radial-gradient(circle at 15% 8%, #fff7c2 0 8%, transparent 9%),
+    linear-gradient(180deg, #bfe7ff 0%, #e8f7ff 45%, #fff8e7 100%);
+  overflow-x: hidden;
+}
+.kid-bg::before,
+.kid-bg::after {
+  content: "☁️  ⭐  ☁️";
+  position: fixed;
+  left: 0;
+  white-space: nowrap;
+  font-size: 2.2rem;
+  opacity: 0.55;
+  pointer-events: none;
+  animation: drift 38s linear infinite;
+}
+.kid-bg::before { top: 14%; }
+.kid-bg::after { top: 52%; animation-duration: 55s; animation-direction: reverse; font-size: 1.6rem; }
+
+@keyframes drift {
+  from { transform: translateX(-60%); }
+  to { transform: translateX(110vw); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kid-bg::before,
+  .kid-bg::after {
+    animation: none;
+  }
+}

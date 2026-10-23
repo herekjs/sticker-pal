@@ -1,0 +1,135 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import { getSupabase } from "@/lib/supabase";
+import type { KidRow, Me } from "./ParentApp";
+
+interface Req {
+  id: string;
+  date: string;
+  submitted_at: string;
+}
+interface Routine {
+  id: string;
+  title: string;
+  icon: string;
+}
+
+const MESSAGES: Record<string, string> = {
+  "theme not chosen": "아이가 먼저 스티커판을 골라야 해요. 아이 화면에서 골라 달라고 해 주세요.",
+  "already decided": "이미 처리된 요청이에요.",
+};
+
+const errMsg = (m: string) => MESSAGES[m] ?? m;
+
+const fmtDate = (d: string) => {
+  const dt = new Date(`${d}T00:00:00`);
+  return `${dt.getMonth() + 1}월 ${dt.getDate()}일 ${"일월화수목금토"[dt.getDay()]}요일`;
+};
+
+export function Inbox({ me, kid, onCount }: { me: Me; kid: KidRow; onCount: (n: number) => void }) {
+  const [reqs, setReqs] = useState<Req[]>([]);
+  const [routines, setRoutines] = useState<Routine[]>([]);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [msg, setMsg] = useState("");
+  const [loaded, setLoaded] = useState(false);
+
+  const load = useCallback(async () => {
+    const sb = getSupabase();
+    const [r, rt] = await Promise.all([
+      sb
+        .from("submissions")
+        .select("id, date, submitted_at")
+        .eq("kid_id", kid.id)
+        .eq("status", "pending")
+        .order("date"),
+      sb
+        .from("routines")
+        .select("id, title, icon")
+        .eq("kid_id", kid.id)
+        .eq("is_active", true)
+        .order("sort_order"),
+    ]);
+    const list = (r.data ?? []) as Req[];
+    setReqs(list);
+    setRoutines((rt.data ?? []) as Routine[]);
+    onCount(list.length);
+    setLoaded(true);
+  }, [kid.id, onCount]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    load();
+    const id = setInterval(() => {
+      if (document.visibilityState === "visible") load();
+    }, 8000);
+    return () => clearInterval(id);
+  }, [load]);
+
+  const approve = async (id: string) => {
+    setBusy(id);
+    setMsg("");
+    const { data, error } = await getSupabase().rpc("approve_submission", { p_id: id });
+    if (error) setMsg(errMsg(error.message));
+    else setMsg(data?.coupon ? "🎉 30개 완성! 쿠폰이 생겼어요." : `⭐ ${data?.slot_no}번째 스티커를 줬어요!`);
+    setBusy(null);
+    load();
+  };
+
+  const reject = async (id: string) => {
+    const note = prompt("아이에게 한마디 (비워도 돼요)", "") ?? null;
+    if (note === null) return;
+    setBusy(id);
+    setMsg("");
+    const { error } = await getSupabase().rpc("reject_submission", { p_id: id, p_note: note });
+    if (error) setMsg(errMsg(error.message));
+    else setMsg("다시 해보라고 알려줬어요.");
+    setBusy(null);
+    load();
+  };
+
+  if (!loaded) return <p>불러오는 중…</p>;
+
+  return (
+    <div className="space-y-3">
+      {msg && <p className="rounded-2xl bg-sky-100 p-3 text-base">{msg}</p>}
+      {reqs.length === 0 && (
+        <div className="rounded-2xl bg-white p-8 text-center shadow">
+          <div className="text-5xl">😊</div>
+          <p className="mt-2">기다리는 승인 요청이 없어요.</p>
+        </div>
+      )}
+      {reqs.map((r) => (
+        <section key={r.id} className="rounded-2xl bg-white p-4 shadow">
+          <p className="text-xl">
+            {kid.avatar} {kid.name}가 다 했어요!
+          </p>
+          <p className="text-base text-black/60">{fmtDate(r.date)}</p>
+          <ul className="mt-2 flex flex-wrap gap-2 text-base">
+            {routines.map((rt) => (
+              <li key={rt.id} className="rounded-full bg-emerald-100 px-3 py-1">
+                {rt.icon} {rt.title} ✔
+              </li>
+            ))}
+          </ul>
+          <div className="mt-3 flex gap-2">
+            <button
+              disabled={busy === r.id}
+              onClick={() => approve(r.id)}
+              className="flex-1 rounded-xl bg-emerald-400 py-3 text-xl text-white shadow disabled:opacity-50"
+            >
+              ✅ 스티커 주기{me.role === "mom" ? " (엄마)" : " (아빠)"}
+            </button>
+            <button
+              disabled={busy === r.id}
+              onClick={() => reject(r.id)}
+              className="rounded-xl bg-slate-100 px-4 py-3 disabled:opacity-50"
+            >
+              다시
+            </button>
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+}
