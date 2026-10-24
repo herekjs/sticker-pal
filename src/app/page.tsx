@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { LastKidLink } from "@/components/LastKidLink";
+import { KidCodeEntry } from "@/components/KidCodeEntry";
 
 export default function Home() {
   return (
@@ -10,6 +11,7 @@ export default function Home() {
 
       <div className="mt-10 flex w-full max-w-xs flex-col gap-4">
         <LastKidLink />
+        <KidCodeEntry />
         <Link
           href="/parent"
           className="rounded-3xl bg-white px-6 py-4 text-xl shadow-md ring-4 ring-white/70"

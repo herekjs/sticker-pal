@@ -8,6 +8,7 @@ import { ROLE_EMOJI, ROLE_LABEL, type Role } from "@/lib/types";
 import { Inbox } from "./Inbox";
 import { RoutineEditor } from "./RoutineEditor";
 import { CouponManager } from "./CouponManager";
+import { KidLinkCard } from "./KidLinkCard";
 
 export interface Me {
   id: string;
@@ -309,50 +310,11 @@ function PasswordEditor() {
 }
 
 function Settings({ kid, onChanged }: { kid: KidRow; onChanged: () => void }) {
-  const [copied, setCopied] = useState(false);
-  const [err, setErr] = useState("");
-  const link = typeof window === "undefined" ? "" : `${window.location.origin}/kid/${kid.view_token}`;
-
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(link);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      setErr("복사에 실패했어요. 링크를 길게 눌러 복사해 주세요.");
-    }
-  };
-
-  const regenerate = async () => {
-    if (!confirm("새 링크를 만들면 지금 링크는 더 이상 쓸 수 없어요. 계속할까요?")) return;
-    const bytes = crypto.getRandomValues(new Uint8Array(24));
-    const token = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
-    const { error } = await getSupabase().from("kids").update({ view_token: token }).eq("id", kid.id);
-    if (error) setErr(error.message);
-    else onChanged();
-  };
-
   return (
     <div className="space-y-4">
       <ProfileEditor kid={kid} onChanged={onChanged} />
+      <KidLinkCard kid={kid} onChanged={onChanged} />
       <PasswordEditor />
-      <section className="space-y-2 rounded-2xl bg-white p-4 shadow">
-        <h2 className="text-xl">🔗 아이 전용 링크</h2>
-        <p className="text-base text-black/60">
-          아이 폰에서 이 링크를 열고 “홈 화면에 추가”하면 앱처럼 쓸 수 있어요. 링크를 아는 사람은 오늘 할 일
-          체크만 할 수 있어요.
-        </p>
-        <p className="break-all rounded-xl bg-amber-50 p-2 text-sm">{link}</p>
-        <div className="flex gap-2">
-          <button onClick={copy} className="flex-1 rounded-xl bg-amber-300 py-2">
-            {copied ? "복사됐어요 ✔" : "링크 복사"}
-          </button>
-          <button onClick={regenerate} className="rounded-xl bg-rose-100 px-4 py-2">
-            새 링크
-          </button>
-        </div>
-        {err && <p className="text-base text-rose-600">{err}</p>}
-      </section>
       <SignOut />
     </div>
   );

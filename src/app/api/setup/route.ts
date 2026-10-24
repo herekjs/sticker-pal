@@ -1,4 +1,4 @@
-import { timingSafeEqual } from "node:crypto";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import { getAdminClient } from "@/lib/supabase-admin";
 
 /**
@@ -14,6 +14,11 @@ const ID_RE = /^[a-z0-9._-]{2,20}$/;
 const MAX_FAILS = 5;
 const BLOCK_MS = 15 * 60 * 1000;
 const fails = new Map<string, { n: number; until: number }>();
+
+// 아이가 입력하기 쉬운 짧은 코드 (헷갈리는 글자 제외)
+const CODE_CHARS = "abcdefghjkmnpqrstuvwxyz23456789";
+const shortCode = (len = 6) =>
+  Array.from(randomBytes(len), (b) => CODE_CHARS[b % CODE_CHARS.length]).join("");
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -131,7 +136,7 @@ export async function POST(request: Request) {
 
       const kid = await sb
         .from("kids")
-        .insert({ family_id: familyId, name: kidName, avatar: "🐻" })
+        .insert({ family_id: familyId, name: kidName, avatar: "🐻", view_token: shortCode() })
         .select("id")
         .single();
       if (kid.error) throw new Error(kid.error.message);
