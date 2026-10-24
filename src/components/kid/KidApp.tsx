@@ -31,7 +31,12 @@ export default function KidApp({ token }: { token: string }) {
         setTab("coupon");
       } else if (v.stickers.length > p.stickers) {
         const last = v.stickers[v.stickers.length - 1];
-        setCelebration({ kind: "sticker", role: last?.role ?? null, emoji: theme?.emoji ?? "⭐" });
+        setCelebration({
+          kind: last?.kind === "bonus" ? "bonus" : "sticker",
+          role: last?.role ?? null,
+          emoji: theme?.emoji ?? "⭐",
+          note: last?.note,
+        });
         setTab("board");
       }
     }
@@ -140,6 +145,7 @@ export default function KidApp({ token }: { token: string }) {
                   isDemo
                     ? {
                         approve: (role) => run(() => api.demoApprove!(role)),
+                        bonus: (role) => run(() => api.demoBonus!(role)),
                         nextDay: () => {
                           demoNextDay();
                           run(api.view);
@@ -212,6 +218,7 @@ function Shell({ children }: { children: React.ReactNode }) {
 
 interface DemoControls {
   approve: (role: Role) => void;
+  bonus: (role: Role) => void;
   nextDay: () => void;
   fill: () => void;
 }
@@ -332,6 +339,12 @@ function TodayTab({
                 </button>
               </>
             )}
+            <button className="rounded-2xl bg-pink-300 py-2 text-white" onClick={() => demo.bonus("mom")}>
+              🎁 엄마 보너스
+            </button>
+            <button className="rounded-2xl bg-sky-300 py-2 text-white" onClick={() => demo.bonus("dad")}>
+              🎁 아빠 보너스
+            </button>
             <button className="rounded-2xl bg-violet-400 py-2 text-white" onClick={demo.nextDay}>
               🌅 내일이 됐어요
             </button>

@@ -23,7 +23,13 @@ export interface KidView {
   submission: { status: SubmissionStatus; reject_note: string | null } | null;
   waiting_days: number;
   board: { id: string; theme_id: string; size: number } | null;
-  stickers: { slot_no: number; date: string; role: Role | null }[];
+  stickers: {
+    slot_no: number;
+    date: string;
+    role: Role | null;
+    kind: "routine" | "bonus";
+    note: string | null;
+  }[];
   coupons: { id: string; title: string; issued_at: string; used_at: string | null }[];
   themes: Theme[];
 }

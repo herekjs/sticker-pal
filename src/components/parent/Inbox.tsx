@@ -17,6 +17,7 @@ interface Routine {
 
 const MESSAGES: Record<string, string> = {
   "theme not chosen": "아이가 먼저 스티커판을 골라야 해요. 아이 화면에서 골라 달라고 해 주세요.",
+  "not your family": "이 아이에게는 줄 수 없어요.",
   "already decided": "이미 처리된 요청이에요.",
 };
 
@@ -76,6 +77,18 @@ export function Inbox({ me, kid, onCount }: { me: Me; kid: KidRow; onCount: (n: 
     load();
   };
 
+  const giveBonus = async () => {
+    const note = prompt("아이에게 한마디 (비워도 돼요)\n예: 동생 잘 돌봐줬어!", "");
+    if (note === null) return;
+    if (!confirm(`🎁 ${kid.name}에게 보너스 스티커를 줄까요?`)) return;
+    setBusy("bonus");
+    setMsg("");
+    const { data, error } = await getSupabase().rpc("give_bonus_sticker", { p_kid: kid.id, p_note: note });
+    if (error) setMsg(errMsg(error.message));
+    else setMsg(data?.coupon ? "🎉 30개 완성! 쿠폰이 생겼어요." : `🎁 ${data?.slot_no}번째 보너스 스티커를 줬어요!`);
+    setBusy(null);
+  };
+
   const reject = async (id: string) => {
     const note = prompt("아이에게 한마디 (비워도 돼요)", "") ?? null;
     if (note === null) return;
@@ -93,6 +106,13 @@ export function Inbox({ me, kid, onCount }: { me: Me; kid: KidRow; onCount: (n: 
   return (
     <div className="space-y-3">
       {msg && <p className="rounded-2xl bg-sky-100 p-3 text-base">{msg}</p>}
+      <button
+        disabled={busy === "bonus"}
+        onClick={giveBonus}
+        className="w-full rounded-2xl bg-gradient-to-r from-pink-300 to-amber-300 py-3 text-xl shadow disabled:opacity-50"
+      >
+        🎁 보너스 스티커 주기
+      </button>
       {reqs.length === 0 && (
         <div className="rounded-2xl bg-white p-8 text-center shadow">
           <div className="text-5xl">😊</div>

@@ -215,6 +215,62 @@ function SignOut() {
   );
 }
 
+const AVATARS = ["🐻", "🐰", "🐱", "🐶", "🦊", "🐼", "🐯", "🦁", "🐸", "🐥", "🦄", "🐲"];
+
+function ProfileEditor({ kid, onChanged }: { kid: KidRow; onChanged: () => void }) {
+  const [name, setName] = useState(kid.name);
+  const [avatar, setAvatar] = useState(kid.avatar);
+  const [msg, setMsg] = useState("");
+  const dirty = name.trim() !== kid.name || avatar !== kid.avatar;
+
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) return;
+    const { error } = await getSupabase()
+      .from("kids")
+      .update({ name: name.trim(), avatar })
+      .eq("id", kid.id);
+    if (error) return setMsg(error.message);
+    setMsg("저장했어요 ✔");
+    onChanged();
+  };
+
+  return (
+    <form onSubmit={save} className="space-y-3 rounded-2xl bg-white p-4 shadow">
+      <h2 className="text-xl">🧒 아이 정보</h2>
+      <input
+        value={name}
+        onChange={(e) => {
+          setName(e.target.value);
+          setMsg("");
+        }}
+        maxLength={20}
+        placeholder="아이 이름"
+        className="w-full rounded-xl border-2 border-amber-200 px-3 py-2"
+      />
+      <div className="flex flex-wrap gap-1">
+        {AVATARS.map((a) => (
+          <button
+            type="button"
+            key={a}
+            onClick={() => {
+              setAvatar(a);
+              setMsg("");
+            }}
+            className={`rounded-xl p-1 text-3xl ${avatar === a ? "bg-amber-300" : "bg-slate-50"}`}
+          >
+            {a}
+          </button>
+        ))}
+      </div>
+      <button disabled={!dirty || !name.trim()} className="w-full rounded-xl bg-amber-400 py-2 disabled:opacity-40">
+        저장
+      </button>
+      {msg && <p className="text-base">{msg}</p>}
+    </form>
+  );
+}
+
 function Settings({ kid, onChanged }: { kid: KidRow; onChanged: () => void }) {
   const [copied, setCopied] = useState(false);
   const [err, setErr] = useState("");
@@ -241,6 +297,7 @@ function Settings({ kid, onChanged }: { kid: KidRow; onChanged: () => void }) {
 
   return (
     <div className="space-y-4">
+      <ProfileEditor kid={kid} onChanged={onChanged} />
       <section className="space-y-2 rounded-2xl bg-white p-4 shadow">
         <h2 className="text-xl">🔗 아이 전용 링크</h2>
         <p className="text-base text-black/60">

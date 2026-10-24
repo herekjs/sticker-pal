@@ -47,6 +47,11 @@ export function StickerBoard({ view, theme }: { view: KidView; theme: Theme }) {
                     >
                       {theme.emoji}
                     </motion.span>
+                    {st.kind === "bonus" && (
+                      <span className="absolute -left-1 -top-1 rounded-full bg-white text-xs leading-none shadow">
+                        🎁
+                      </span>
+                    )}
                     {st.role && (
                       <span className="absolute -bottom-1 -right-1 rounded-full bg-white text-xs leading-none shadow">
                         {ROLE_EMOJI[st.role]}

@@ -6,9 +6,10 @@ import { bigCelebration } from "@/lib/confetti";
 import { ROLE_LABEL, type Role } from "@/lib/types";
 
 export interface CelebrationInfo {
-  kind: "sticker" | "coupon";
+  kind: "sticker" | "bonus" | "coupon";
   role: Role | null;
   emoji: string;
+  note?: string | null;
 }
 
 export function Celebration({ info, onClose }: { info: CelebrationInfo; onClose: () => void }) {
@@ -46,7 +47,11 @@ export function Celebration({ info, onClose }: { info: CelebrationInfo; onClose:
         animate={{ opacity: 1, scale: 1 }}
         transition={{ delay: 0.7, type: "spring" }}
       >
-        {isCoupon ? "장난감 쿠폰이 생겼어요!" : `${who}가 승인했어요!`}
+        {isCoupon
+          ? "장난감 쿠폰이 생겼어요!"
+          : info.kind === "bonus"
+            ? `${who}가 보너스 스티커를 줬어요!`
+            : `${who}가 승인했어요!`}
       </motion.p>
       <motion.p
         className="mt-3 text-2xl"
@@ -54,7 +59,11 @@ export function Celebration({ info, onClose }: { info: CelebrationInfo; onClose:
         animate={{ opacity: 1 }}
         transition={{ delay: 1.1 }}
       >
-        {isCoupon ? "🎉 30개를 다 모았어! 최고야! 🎉" : "스티커가 붙었어요 ✨"}
+        {isCoupon
+          ? "🎉 30개를 다 모았어! 최고야! 🎉"
+          : info.kind === "bonus" && info.note
+            ? `🎁 “${info.note}”`
+            : "스티커가 붙었어요 ✨"}
       </motion.p>
     </motion.div>
   );

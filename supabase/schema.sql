@@ -90,11 +90,19 @@ create table if not exists stickers (
   date date not null,
   slot_no int not null,
   awarded_by uuid references profiles(id),
+  kind text not null default 'routine' check (kind in ('routine', 'bonus')),
+  note text,                      -- 보너스 스티커 한마디
   value_amount numeric,           -- 나중에 "스티커당 금액" 기능용
   created_at timestamptz not null default now(),
-  unique (kid_id, date),
   unique (board_id, slot_no)
 );
+-- 이미 예전 스키마를 실행한 DB도 안전하게 올라가도록 (재실행 가능)
+alter table stickers add column if not exists kind text not null default 'routine';
+alter table stickers add column if not exists note text;
+alter table stickers drop constraint if exists stickers_kid_id_date_key;
+-- 루틴 스티커는 하루 1개, 보너스 스티커는 제한 없음
+create unique index if not exists stickers_one_routine_per_day
+  on stickers (kid_id, date) where kind = 'routine';
 
 create table if not exists coupons (
   id uuid primary key default gen_random_uuid(),
@@ -206,7 +214,8 @@ begin
       from boards b where b.id = k.current_board_id
     ),
     'stickers', coalesce((
-      select jsonb_agg(jsonb_build_object('slot_no', s.slot_no, 'date', s.date, 'role', p.role)
+      select jsonb_agg(jsonb_build_object('slot_no', s.slot_no, 'date', s.date, 'role', p.role,
+                                          'kind', s.kind, 'note', s.note)
         order by s.slot_no)
       from stickers s left join profiles p on p.id = s.awarded_by
       where s.board_id = k.current_board_id
@@ -304,6 +313,32 @@ begin
   return jsonb_build_object('slot_no', sl, 'coupon', sl >= b.size);
 end $$;
 
+-- 부모가 아이의 요청 없이 직접 주는 보너스 스티커
+create or replace function public.give_bonus_sticker(p_kid uuid, p_note text default null) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare me profiles; k kids; b boards; cnt int; sl int;
+begin
+  select * into me from profiles where id = auth.uid();
+  if not found then raise exception 'not a parent'; end if;
+  select * into k from kids where id = p_kid for update;
+  if not found or k.family_id <> me.family_id then raise exception 'not your family'; end if;
+  if k.current_board_id is null then raise exception 'theme not chosen'; end if;
+
+  select * into b from boards where id = k.current_board_id;
+  select count(*) into cnt from stickers where board_id = b.id;
+  sl := cnt + 1;
+
+  insert into stickers (kid_id, board_id, date, slot_no, awarded_by, kind, note)
+  values (k.id, b.id, family_today(k.family_id), sl, me.id, 'bonus', nullif(trim(p_note), ''));
+
+  if sl >= b.size then
+    update boards set completed_at = now() where id = b.id;
+    update kids set current_board_id = null where id = k.id;
+    insert into coupons (kid_id, board_id) values (k.id, b.id);
+  end if;
+  return jsonb_build_object('slot_no', sl, 'coupon', sl >= b.size);
+end $$;
+
 create or replace function public.reject_submission(p_id uuid, p_note text default null) returns void
 language plpgsql security definer set search_path = public as $$
 declare me profiles; s submissions; k kids;
@@ -329,6 +364,8 @@ revoke all on function public.kid_toggle(text, uuid, boolean) from public;
 revoke all on function public.kid_pick_theme(text, text) from public;
 revoke all on function public.approve_submission(uuid) from public;
 revoke all on function public.reject_submission(uuid, text) from public;
+revoke all on function public.give_bonus_sticker(uuid, text) from public;
+grant execute on function public.give_bonus_sticker(uuid, text) to authenticated;
 
 grant execute on function public.kid_view(text) to anon, authenticated;
 grant execute on function public.kid_toggle(text, uuid, boolean) to anon, authenticated;

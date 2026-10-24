@@ -7,6 +7,7 @@ export interface KidApi {
   pickTheme(themeId: string): Promise<KidView>;
   /** 데모 모드에서만 존재: 부모 승인을 흉내냄 */
   demoApprove?(role: Role): Promise<KidView>;
+  demoBonus?(role: Role): Promise<KidView>;
 }
 
 export const DEMO_TOKEN = "demo";
@@ -59,6 +60,13 @@ function freshDemo(): KidView {
   };
 }
 
+function completeIfFull(v: KidView) {
+  if (!v.board || v.stickers.length < v.board.size) return;
+  v.coupons.unshift({ id: "c" + Date.now(), title: "장난감 1개", issued_at: new Date().toISOString(), used_at: null });
+  v.board = null;
+  v.stickers = [];
+}
+
 function demoApi(): KidApi {
   const load = (): KidView => {
     try {
@@ -98,14 +106,23 @@ function demoApi(): KidApi {
       const v = load();
       if (!v.board || v.submission?.status !== "pending") return save(v);
       const slot = v.stickers.length + 1;
-      v.stickers.push({ slot_no: slot, date: v.today, role });
+      v.stickers.push({ slot_no: slot, date: v.today, role, kind: "routine", note: null });
       v.submission = { status: "approved", reject_note: null };
       v.waiting_days = 0;
-      if (slot >= v.board.size) {
-        v.coupons.unshift({ id: "c" + Date.now(), title: "장난감 1개", issued_at: new Date().toISOString(), used_at: null });
-        v.board = null;
-        v.stickers = [];
-      }
+      completeIfFull(v);
+      return save(v);
+    },
+    async demoBonus(role) {
+      const v = load();
+      if (!v.board) return save(v);
+      v.stickers.push({
+        slot_no: v.stickers.length + 1,
+        date: v.today,
+        role,
+        kind: "bonus",
+        note: "동생 잘 돌봐줬어!",
+      });
+      completeIfFull(v);
       return save(v);
     },
   };
@@ -131,7 +148,13 @@ export function demoFastForward(n: number) {
     const roles: Role[] = ["mom", "dad"];
     for (let i = 0; i < n && v.stickers.length < v.board.size - 1; i++) {
       const slot = v.stickers.length + 1;
-      v.stickers.push({ slot_no: slot, date: `2026-01-${String(slot).padStart(2, "0")}`, role: roles[i % 2] });
+      v.stickers.push({
+        slot_no: slot,
+        date: `2026-01-${String(slot).padStart(2, "0")}`,
+        role: roles[i % 2],
+        kind: "routine",
+        note: null,
+      });
     }
     localStorage.setItem(DEMO_KEY, JSON.stringify(v));
   } catch {}
