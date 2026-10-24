@@ -15,20 +15,20 @@ npm run dev
 
 ## Supabase 연결 (실서비스)
 
-1. [Supabase](https://supabase.com)에서 새 프로젝트 생성
+1. [Supabase](https://supabase.com)에서 새 프로젝트 생성 (GitHub 로그인 가능)
 2. **SQL Editor**에서 [supabase/schema.sql](supabase/schema.sql) 실행
-3. **Authentication → Users → Add user → Create new user** 로 두 명 생성 (Auto Confirm User 체크, 비밀번호는 직접 정하기)
-   - `mom@sticker.example.com`
-   - `dad@sticker.example.com`
-4. SQL Editor에서 [supabase/seed.sql](supabase/seed.sql) 실행 (가족/아이/기본 루틴 생성 — 아이 이름은 파일에서 수정)
-5. `.env.example`을 `.env.local`로 복사하고 Project Settings → API 의 값을 입력
+3. **Project Settings → API**에서 값을 복사해 `.env.example`을 `.env.local`로 복사한 뒤 입력
    - `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-6. 로그인 화면에서 아이디 `mom` / `dad` + 정한 비밀번호로 로그인
-7. 부모 화면 **설정 → 아이 전용 링크**를 아이 폰으로 보내 “홈 화면에 추가”
+   - `SUPABASE_SERVICE_ROLE_KEY` (service_role / secret 키, **서버 전용·절대 공개 금지**)
+4. `npm run dev` 후 http://localhost:3000/setup 에서 **ADMIN / 1234** 로 로그인 → 엄마·아빠 아이디/비밀번호와 아이 이름 입력 → 시작하기
+   - 설정이 끝나면 `/setup`은 자동으로 닫힙니다 (부모 계정이 하나라도 있으면 비활성화).
+   - 인터넷에 배포할 때는 `SETUP_ADMIN_PASSWORD`로 ADMIN 비밀번호를 바꾸고, 배포 직후 바로 설정을 끝내세요.
+5. http://localhost:3000/parent 에서 방금 만든 아이디/비밀번호로 로그인
+6. 부모 화면 **설정 → 아이 전용 링크**를 아이 폰으로 보내 “홈 화면에 추가”
 
 ## 배포 (Vercel)
 
-GitHub 저장소를 Vercel에 연결하고 환경변수 3개(`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_AUTH_DOMAIN`)를 등록하면 push마다 자동 배포됩니다.
+GitHub 저장소를 Vercel에 연결하고 환경변수(`.env.example`의 항목들, `SUPABASE_SERVICE_ROLE_KEY`와 `SETUP_ADMIN_PASSWORD` 포함)를 등록하면 push마다 자동 배포됩니다.
 
 ## 구조
 
@@ -36,6 +36,7 @@ GitHub 저장소를 Vercel에 연결하고 환경변수 3개(`NEXT_PUBLIC_SUPABA
 - `src/components/parent/*` — 부모 화면 (승인함, 루틴, 쿠폰, 설정)
 - `src/lib/kid-api.ts` — 아이 링크용 API (실서비스 RPC + 데모 구현)
 - `supabase/schema.sql` — 테이블, RLS, 승인/토글 RPC
+- `src/app/api/setup/route.ts` — 최초 설정(ADMIN) API
 
 ## 보안 메모
 

@@ -7,7 +7,11 @@ export const hasSupabase = Boolean(url && key);
 
 /** 부모 로그인 아이디(mom/dad)를 Supabase Auth 이메일로 매핑 */
 export const AUTH_DOMAIN = process.env.NEXT_PUBLIC_AUTH_DOMAIN ?? "sticker.example.com";
-export const idToEmail = (id: string) => `${id.trim().toLowerCase()}@${AUTH_DOMAIN}`;
+export const idToEmail = (id: string) => {
+  const v = id.trim().toLowerCase();
+  // 전체 이메일을 입력하면 그대로, 앞부분(아이디)만 입력하면 도메인을 붙임
+  return v.includes("@") ? v : `${v}@${AUTH_DOMAIN}`;
+};
 
 let client: SupabaseClient | null = null;
 

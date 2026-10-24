@@ -105,7 +105,10 @@ function Login() {
           {busy ? "확인 중…" : "로그인"}
         </button>
       </form>
-      <p className="mt-6 text-center text-base">
+      <p className="mt-6 space-x-4 text-center text-base">
+        <Link href="/setup" className="text-black/50 underline">
+          처음이신가요? 처음 설정
+        </Link>
         <Link href="/" className="text-black/50 underline">
           처음으로
         </Link>
@@ -271,6 +274,40 @@ function ProfileEditor({ kid, onChanged }: { kid: KidRow; onChanged: () => void 
   );
 }
 
+function PasswordEditor() {
+  const [pw, setPw] = useState("");
+  const [msg, setMsg] = useState("");
+
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const { error } = await getSupabase().auth.updateUser({ password: pw });
+    if (error) return setMsg(error.message);
+    setPw("");
+    setMsg("비밀번호를 바꿨어요 ✔");
+  };
+
+  return (
+    <form onSubmit={save} className="space-y-2 rounded-2xl bg-white p-4 shadow">
+      <h2 className="text-xl">🔑 내 비밀번호 변경</h2>
+      <input
+        value={pw}
+        onChange={(e) => {
+          setPw(e.target.value);
+          setMsg("");
+        }}
+        type="password"
+        autoComplete="new-password"
+        placeholder="새 비밀번호 (6자 이상)"
+        className="w-full rounded-xl border-2 border-amber-200 px-3 py-2"
+      />
+      <button disabled={pw.length < 6} className="w-full rounded-xl bg-amber-400 py-2 disabled:opacity-40">
+        변경
+      </button>
+      {msg && <p className="text-base">{msg}</p>}
+    </form>
+  );
+}
+
 function Settings({ kid, onChanged }: { kid: KidRow; onChanged: () => void }) {
   const [copied, setCopied] = useState(false);
   const [err, setErr] = useState("");
@@ -298,6 +335,7 @@ function Settings({ kid, onChanged }: { kid: KidRow; onChanged: () => void }) {
   return (
     <div className="space-y-4">
       <ProfileEditor kid={kid} onChanged={onChanged} />
+      <PasswordEditor />
       <section className="space-y-2 rounded-2xl bg-white p-4 shadow">
         <h2 className="text-xl">🔗 아이 전용 링크</h2>
         <p className="text-base text-black/60">
