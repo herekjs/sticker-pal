@@ -1,7 +1,6 @@
-import SetupApp from "@/components/SetupApp";
+import { redirect } from "next/navigation";
 
-export const metadata = { title: "스티커 친구 - 처음 설정" };
-
+// 가족 생성은 관리자 화면에서 한다.
 export default function SetupPage() {
-  return <SetupApp />;
+  redirect("/admin");
 }

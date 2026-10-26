@@ -383,3 +383,50 @@ insert into themes (id, name, emoji, color, sort_order) values
   ('car',     '자동차',   '🚗', '#fca5a5', 5),
   ('unicorn', '유니콘',   '🦄', '#d8b4fe', 6)
 on conflict (id) do nothing;
+
+-- ───────── 다가족 한도: 최대 5가족, 가족당 아이 2명, 엄마/아빠 각 1명 ─────────
+create or replace function public.limit_families() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  perform pg_advisory_xact_lock(7001);
+  if (select count(*) from families) >= 5 then
+    raise exception 'family limit reached';
+  end if;
+  return new;
+end $$;
+drop trigger if exists families_limit on families;
+create trigger families_limit before insert on families
+  for each row execute function limit_families();
+
+create or replace function public.limit_kids() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  perform pg_advisory_xact_lock(hashtext(new.family_id::text));
+  if (select count(*) from kids where family_id = new.family_id) >= 2 then
+    raise exception 'kid limit reached';
+  end if;
+  return new;
+end $$;
+drop trigger if exists kids_limit on kids;
+create trigger kids_limit before insert on kids
+  for each row execute function limit_kids();
+
+create unique index if not exists profiles_one_role_per_family on profiles (family_id, role);
+
+-- 부모가 자기 가족에 아이 추가 (한도는 위 트리거가 강제)
+create or replace function public.add_kid(p_name text) returns uuid
+language plpgsql security definer set search_path = public as $$
+declare fam uuid; new_id uuid;
+begin
+  fam := my_family();
+  if fam is null then raise exception 'not a parent'; end if;
+  if nullif(trim(p_name), '') is null then raise exception 'name required'; end if;
+  insert into kids (family_id, name, view_token)
+  values (fam, trim(p_name),
+          (select string_agg(substr('abcdefghjkmnpqrstuvwxyz23456789', 1 + floor(random() * 31)::int, 1), '')
+             from generate_series(1, 6)))
+  returning id into new_id;
+  return new_id;
+end $$;
+revoke all on function public.add_kid(text) from public;
+grant execute on function public.add_kid(text) to authenticated;

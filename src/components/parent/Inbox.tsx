@@ -6,11 +6,13 @@ import type { KidRow, Me } from "./ParentApp";
 
 interface Req {
   id: string;
+  kid_id: string;
   date: string;
   submitted_at: string;
 }
 interface Routine {
   id: string;
+  kid_id: string;
   title: string;
   icon: string;
 }
@@ -28,7 +30,19 @@ const fmtDate = (d: string) => {
   return `${dt.getMonth() + 1}월 ${dt.getDate()}일 ${"일월화수목금토"[dt.getDay()]}요일`;
 };
 
-export function Inbox({ me, kid, onCount }: { me: Me; kid: KidRow; onCount: (n: number) => void }) {
+export function Inbox({
+  me,
+  kid,
+  kids,
+  onCount,
+}: {
+  me: Me;
+  kid: KidRow; // 보너스 스티커를 줄 아이(선택된 아이)
+  kids: KidRow[]; // 승인 요청은 모든 아이 것을 보여줌
+  onCount: (n: number) => void;
+}) {
+  const kidIds = kids.map((k) => k.id);
+  const kidKey = kidIds.join(",");
   const [reqs, setReqs] = useState<Req[]>([]);
   const [routines, setRoutines] = useState<Routine[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
@@ -40,14 +54,14 @@ export function Inbox({ me, kid, onCount }: { me: Me; kid: KidRow; onCount: (n: 
     const [r, rt] = await Promise.all([
       sb
         .from("submissions")
-        .select("id, date, submitted_at")
-        .eq("kid_id", kid.id)
+        .select("id, kid_id, date, submitted_at")
+        .in("kid_id", kidIds)
         .eq("status", "pending")
         .order("date"),
       sb
         .from("routines")
-        .select("id, title, icon")
-        .eq("kid_id", kid.id)
+        .select("id, kid_id, title, icon")
+        .in("kid_id", kidIds)
         .eq("is_active", true)
         .order("sort_order"),
     ]);
@@ -56,7 +70,8 @@ export function Inbox({ me, kid, onCount }: { me: Me; kid: KidRow; onCount: (n: 
     setRoutines((rt.data ?? []) as Routine[]);
     onCount(list.length);
     setLoaded(true);
-  }, [kid.id, onCount]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kidKey, onCount]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -111,7 +126,7 @@ export function Inbox({ me, kid, onCount }: { me: Me; kid: KidRow; onCount: (n: 
         onClick={giveBonus}
         className="w-full rounded-2xl bg-gradient-to-r from-pink-300 to-amber-300 py-3 text-xl shadow disabled:opacity-50"
       >
-        🎁 보너스 스티커 주기
+        🎁 {kid.name}에게 보너스 스티커 주기
       </button>
       {reqs.length === 0 && (
         <div className="rounded-2xl bg-white p-8 text-center shadow">
@@ -122,11 +137,11 @@ export function Inbox({ me, kid, onCount }: { me: Me; kid: KidRow; onCount: (n: 
       {reqs.map((r) => (
         <section key={r.id} className="rounded-2xl bg-white p-4 shadow">
           <p className="text-xl">
-            {kid.avatar} {kid.name}가 다 했어요!
+            {kids.find((k) => k.id === r.kid_id)?.avatar} {kids.find((k) => k.id === r.kid_id)?.name}가 다 했어요!
           </p>
           <p className="text-base text-black/60">{fmtDate(r.date)}</p>
           <ul className="mt-2 flex flex-wrap gap-2 text-base">
-            {routines.map((rt) => (
+            {routines.filter((rt) => rt.kid_id === r.kid_id).map((rt) => (
               <li key={rt.id} className="rounded-full bg-emerald-100 px-3 py-1">
                 {rt.icon} {rt.title} ✔
               </li>
