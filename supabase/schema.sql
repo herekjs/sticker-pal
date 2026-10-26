@@ -115,6 +115,29 @@ create table if not exists coupons (
   used_by uuid references profiles(id)
 );
 
+-- ───────── 선물 단계(STOP/GO) & 선물 기록 ─────────
+-- 아이별 선물 단계. 마지막 단계의 개수가 스티커판 크기가 됨.
+alter table kids add column if not exists reward_tiers jsonb not null
+  default '[{"count":10,"name":"작은 선물"},{"count":20,"name":"중간 선물"},{"count":30,"name":"큰 선물"}]'::jsonb;
+-- 판을 만들 때 단계를 스냅샷으로 저장 / choice_at: 그 개수에서 STOP·GO 선택 대기 중
+alter table boards add column if not exists tiers jsonb;
+alter table boards add column if not exists choice_at int;
+alter table coupons add column if not exists tier_count int;
+alter table coupons add column if not exists tier_name text;
+alter table coupons add column if not exists gift_note text;   -- 부모가 기록한 실제 선물
+-- 기존 진행 중인 판은 기본 단계로 (이미 지난 단계는 소급하지 않음)
+update boards
+  set tiers = '[{"count":10,"name":"작은 선물"},{"count":20,"name":"중간 선물"},{"count":30,"name":"큰 선물"}]'::jsonb
+  where tiers is null and completed_at is null;
+
+-- 부모 계정이 삭제돼도 기록은 남고 "누가"만 비워지도록 (가족 삭제가 막히지 않게)
+alter table submissions drop constraint if exists submissions_decided_by_fkey,
+  add constraint submissions_decided_by_fkey foreign key (decided_by) references profiles(id) on delete set null;
+alter table stickers drop constraint if exists stickers_awarded_by_fkey,
+  add constraint stickers_awarded_by_fkey foreign key (awarded_by) references profiles(id) on delete set null;
+alter table coupons drop constraint if exists coupons_used_by_fkey,
+  add constraint coupons_used_by_fkey foreign key (used_by) references profiles(id) on delete set null;
+
 -- ───────── 헬퍼 ─────────
 create or replace function public.my_family() returns uuid
 language sql stable security definer set search_path = public as $$
@@ -210,7 +233,8 @@ begin
     ),
     'waiting_days', (select count(*) from submissions where kid_id = k.id and status = 'pending'),
     'board', (
-      select jsonb_build_object('id', b.id, 'theme_id', b.theme_id, 'size', b.size)
+      select jsonb_build_object('id', b.id, 'theme_id', b.theme_id, 'size', b.size,
+                                'tiers', coalesce(b.tiers, '[]'::jsonb), 'choice_at', b.choice_at)
       from boards b where b.id = k.current_board_id
     ),
     'stickers', coalesce((
@@ -222,7 +246,8 @@ begin
     ), '[]'::jsonb),
     'coupons', coalesce((
       select jsonb_agg(jsonb_build_object(
-        'id', c.id, 'title', c.title, 'issued_at', c.issued_at, 'used_at', c.used_at
+        'id', c.id, 'title', c.title, 'issued_at', c.issued_at, 'used_at', c.used_at,
+        'tier_name', c.tier_name, 'tier_count', c.tier_count, 'gift_note', c.gift_note
       ) order by c.issued_at desc)
       from coupons c where c.kid_id = k.id
     ), '[]'::jsonb),
@@ -275,15 +300,56 @@ begin
     if exists (select 1 from stickers where board_id = b.id) then
       raise exception 'board in progress';
     end if;
-    update boards set theme_id = p_theme where id = b.id;
+    update boards
+      set theme_id = p_theme, tiers = k.reward_tiers,
+          size = (k.reward_tiers -> (jsonb_array_length(k.reward_tiers) - 1) ->> 'count')::int
+      where id = b.id;
   else
-    insert into boards (kid_id, theme_id) values (k.id, p_theme) returning id into new_id;
+    insert into boards (kid_id, theme_id, tiers, size)
+    values (k.id, p_theme, k.reward_tiers,
+            (k.reward_tiers -> (jsonb_array_length(k.reward_tiers) - 1) ->> 'count')::int)
+    returning id into new_id;
     update kids set current_board_id = new_id where id = k.id;
   end if;
   return kid_view(p_token);
 end $$;
 
 -- ───────── 부모 전용 RPC (로그인 필요) ─────────
+-- 판을 닫고 그 단계의 쿠폰을 발급 (STOP 선택 또는 마지막 단계 도달)
+create or replace function public.close_board_with_coupon(p_board uuid, p_count int) returns void
+language plpgsql security definer set search_path = public as $$
+declare b boards; tname text;
+begin
+  select * into b from boards where id = p_board;
+  select e ->> 'name' into tname
+    from jsonb_array_elements(coalesce(b.tiers, '[]'::jsonb)) e
+    where (e ->> 'count')::int = p_count limit 1;
+  update boards set completed_at = now(), choice_at = null where id = b.id;
+  update kids set current_board_id = null where id = b.kid_id and current_board_id = b.id;
+  insert into coupons (kid_id, board_id, title, tier_count, tier_name)
+  values (b.kid_id, b.id,
+          case when tname is null then '장난감 1개' else tname || ' (' || p_count || '개)' end,
+          p_count, tname);
+end $$;
+
+-- 스티커가 붙은 직후: 마지막 단계면 쿠폰, 중간 단계면 STOP/GO 선택 대기
+create or replace function public.finish_sticker(p_board uuid, p_slot int) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare b boards; is_tier boolean;
+begin
+  select * into b from boards where id = p_board for update;
+  if p_slot >= b.size then
+    perform close_board_with_coupon(b.id, p_slot);
+    return jsonb_build_object('slot_no', p_slot, 'coupon', true, 'choice', false);
+  end if;
+  select exists (select 1 from jsonb_array_elements(coalesce(b.tiers, '[]'::jsonb)) e
+                 where (e ->> 'count')::int = p_slot) into is_tier;
+  if is_tier then
+    update boards set choice_at = p_slot where id = b.id;
+  end if;
+  return jsonb_build_object('slot_no', p_slot, 'coupon', false, 'choice', is_tier);
+end $$;
+
 create or replace function public.approve_submission(p_id uuid) returns jsonb
 language plpgsql security definer set search_path = public as $$
 declare me profiles; s submissions; k kids; b boards; cnt int; sl int;
@@ -297,7 +363,8 @@ begin
   if s.status <> 'pending' then raise exception 'already decided'; end if;
   if k.current_board_id is null then raise exception 'theme not chosen'; end if;
 
-  select * into b from boards where id = k.current_board_id;
+  select * into b from boards where id = k.current_board_id for update;
+  if b.choice_at is not null then raise exception 'waiting for choice'; end if;
   select count(*) into cnt from stickers where board_id = b.id;
   sl := cnt + 1;
 
@@ -305,12 +372,7 @@ begin
   values (k.id, b.id, s.date, sl, me.id);
   update submissions set status = 'approved', decided_by = me.id, decided_at = now() where id = p_id;
 
-  if sl >= b.size then
-    update boards set completed_at = now() where id = b.id;
-    update kids set current_board_id = null where id = k.id;
-    insert into coupons (kid_id, board_id) values (k.id, b.id);
-  end if;
-  return jsonb_build_object('slot_no', sl, 'coupon', sl >= b.size);
+  return finish_sticker(b.id, sl);
 end $$;
 
 -- 부모가 아이의 요청 없이 직접 주는 보너스 스티커
@@ -324,19 +386,65 @@ begin
   if not found or k.family_id <> me.family_id then raise exception 'not your family'; end if;
   if k.current_board_id is null then raise exception 'theme not chosen'; end if;
 
-  select * into b from boards where id = k.current_board_id;
+  select * into b from boards where id = k.current_board_id for update;
+  if b.choice_at is not null then raise exception 'waiting for choice'; end if;
   select count(*) into cnt from stickers where board_id = b.id;
   sl := cnt + 1;
 
   insert into stickers (kid_id, board_id, date, slot_no, awarded_by, kind, note)
   values (k.id, b.id, family_today(k.family_id), sl, me.id, 'bonus', nullif(trim(p_note), ''));
 
-  if sl >= b.size then
-    update boards set completed_at = now() where id = b.id;
-    update kids set current_board_id = null where id = k.id;
-    insert into coupons (kid_id, board_id) values (k.id, b.id);
+  return finish_sticker(b.id, sl);
+end $$;
+
+-- 아이가 중간 단계에서 STOP(선물 받기) 또는 GO(더 모으기)를 선택
+create or replace function public.kid_choose(p_token text, p_choice text) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare k kids; b boards;
+begin
+  select * into k from kids where view_token = p_token;
+  if not found then raise exception 'invalid link'; end if;
+  if k.current_board_id is null then raise exception 'no board'; end if;
+  select * into b from boards where id = k.current_board_id for update;
+  if b.choice_at is null then raise exception 'nothing to choose'; end if;
+
+  if p_choice = 'go' then
+    update boards set choice_at = null where id = b.id;
+  elsif p_choice = 'stop' then
+    perform close_board_with_coupon(b.id, b.choice_at);
+  else
+    raise exception 'bad choice';
   end if;
-  return jsonb_build_object('slot_no', sl, 'coupon', sl >= b.size);
+  return kid_view(p_token);
+end $$;
+
+-- 부모가 아이의 선물 단계를 설정 (다음 판부터 적용)
+create or replace function public.set_reward_tiers(p_kid uuid, p_tiers jsonb) returns void
+language plpgsql security definer set search_path = public as $$
+declare me profiles; k kids; e jsonb; last_count int := 0; c int; n int;
+begin
+  select * into me from profiles where id = auth.uid();
+  if not found then raise exception 'not a parent'; end if;
+  select * into k from kids where id = p_kid;
+  if not found or k.family_id <> me.family_id then raise exception 'not your family'; end if;
+  if jsonb_typeof(p_tiers) <> 'array' then raise exception 'invalid tiers'; end if;
+  n := jsonb_array_length(p_tiers);
+  if n < 1 or n > 5 then raise exception 'invalid tiers'; end if;
+  for e in select * from jsonb_array_elements(p_tiers) loop
+    if jsonb_typeof(e -> 'count') <> 'number' or jsonb_typeof(e -> 'name') <> 'string' then
+      raise exception 'invalid tiers';
+    end if;
+    c := (e ->> 'count')::int;
+    if c < 1 or c > 60 or c <= last_count then raise exception 'invalid tiers'; end if;
+    if char_length(trim(e ->> 'name')) < 1 or char_length(e ->> 'name') > 20 then
+      raise exception 'invalid tiers';
+    end if;
+    last_count := c;
+  end loop;
+  update kids set reward_tiers = (
+    select jsonb_agg(jsonb_build_object('count', (x ->> 'count')::int, 'name', trim(x ->> 'name')))
+    from jsonb_array_elements(p_tiers) x
+  ) where id = p_kid;
 end $$;
 
 create or replace function public.reject_submission(p_id uuid, p_note text default null) returns void
@@ -373,6 +481,12 @@ grant execute on function public.kid_pick_theme(text, text) to anon, authenticat
 grant execute on function public.approve_submission(uuid) to authenticated;
 grant execute on function public.reject_submission(uuid, text) to authenticated;
 grant execute on function public.my_family() to authenticated;
+revoke all on function public.close_board_with_coupon(uuid, int) from public;
+revoke all on function public.finish_sticker(uuid, int) from public;
+revoke all on function public.kid_choose(text, text) from public;
+revoke all on function public.set_reward_tiers(uuid, jsonb) from public;
+grant execute on function public.kid_choose(text, text) to anon, authenticated;
+grant execute on function public.set_reward_tiers(uuid, jsonb) to authenticated;
 
 -- ───────── 테마 시드 ─────────
 insert into themes (id, name, emoji, color, sort_order) values
@@ -430,3 +544,20 @@ begin
 end $$;
 revoke all on function public.add_kid(text) from public;
 grant execute on function public.add_kid(text) to authenticated;
+
+
+-- ───────── 실행 권한 최종 정리 ─────────
+-- Supabase는 public 스키마의 새 함수에 anon/authenticated 실행 권한을 기본으로 붙이므로
+-- (revoke from public 만으로는 안 지워짐) 내부 함수와 부모 전용 함수는 명시적으로 회수한다.
+-- 내부 함수: 다른 security definer 함수 안에서만 호출됨 (아이 토큰으로 직접 호출되면 안 됨)
+revoke all on function public.finish_sticker(uuid, int) from public, anon, authenticated;
+revoke all on function public.close_board_with_coupon(uuid, int) from public, anon, authenticated;
+revoke all on function public.family_today(uuid) from public, anon, authenticated;
+revoke all on function public.limit_families() from public, anon, authenticated;
+revoke all on function public.limit_kids() from public, anon, authenticated;
+-- 부모 전용: 로그인한 사용자만
+revoke all on function public.approve_submission(uuid) from public, anon;
+revoke all on function public.reject_submission(uuid, text) from public, anon;
+revoke all on function public.give_bonus_sticker(uuid, text) from public, anon;
+revoke all on function public.set_reward_tiers(uuid, jsonb) from public, anon;
+revoke all on function public.add_kid(text) from public, anon;

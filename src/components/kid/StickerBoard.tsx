@@ -10,7 +10,10 @@ export function StickerBoard({ view, theme }: { view: KidView; theme: Theme }) {
   const bySlot = new Map(view.stickers.map((s) => [s.slot_no, s]));
   const mom = view.stickers.filter((s) => s.role === "mom").length;
   const dad = view.stickers.filter((s) => s.role === "dad").length;
-  const left = size - count;
+  const tiers = view.board?.tiers ?? [];
+  const tierAt = new Map(tiers.map((t) => [t.count, t]));
+  const nextTier = tiers.find((t) => t.count > count);
+  const left = nextTier ? nextTier.count - count : size - count;
 
   return (
     <div className="space-y-4">
@@ -36,7 +39,9 @@ export function StickerBoard({ view, theme }: { view: KidView; theme: Theme }) {
                 key={n}
                 className={`relative flex aspect-square items-center justify-center rounded-2xl text-3xl ${
                   st ? "bg-white shadow-md" : "bg-white/40"
-                } ${isNext ? "animate-pulse ring-4 ring-white ring-offset-2" : ""}`}
+                } ${isNext ? "animate-pulse ring-4 ring-white ring-offset-2" : ""} ${
+                  tierAt.has(n) ? "ring-4 ring-amber-300" : ""
+                }`}
               >
                 {st ? (
                   <>
@@ -58,6 +63,11 @@ export function StickerBoard({ view, theme }: { view: KidView; theme: Theme }) {
                       </span>
                     )}
                   </>
+                ) : tierAt.has(n) ? (
+                  <span className="flex flex-col items-center leading-none">
+                    <span className="text-2xl">🎁</span>
+                    <span className="text-xs font-bold text-black/40">{n}</span>
+                  </span>
                 ) : (
                   <span className="text-sm font-bold text-black/25">{n}</span>
                 )}
@@ -77,7 +87,11 @@ export function StickerBoard({ view, theme }: { view: KidView; theme: Theme }) {
           />
         </div>
         <p className="text-center text-lg">
-          {left <= 5 && left > 0 ? `조금만 더! ${left}개 남았어요 🔥` : left === 0 ? "다 모았어요! 🎉" : `쿠폰까지 ${left}개!`}
+          {left === 0
+            ? "다 모았어요! 🎉"
+            : left <= 3
+              ? `조금만 더! ${left}개 남았어요 🔥`
+              : `다음 선물${nextTier ? `(${nextTier.name})` : ""}까지 ${left}개!`}
         </p>
         <p className="mt-1 text-center text-base text-black/60">
           {ROLE_EMOJI.mom} 엄마 {mom}개 · {ROLE_EMOJI.dad} 아빠 {dad}개

@@ -21,9 +21,16 @@ const MESSAGES: Record<string, string> = {
   "theme not chosen": "아이가 먼저 스티커판을 골라야 해요. 아이 화면에서 골라 달라고 해 주세요.",
   "not your family": "이 아이에게는 줄 수 없어요.",
   "already decided": "이미 처리된 요청이에요.",
+  "waiting for choice": "아이가 STOP/GO를 고르는 중이에요. 고른 뒤에 다시 시도해 주세요.",
 };
 
 const errMsg = (m: string) => MESSAGES[m] ?? m;
+
+function doneMessage(data: { slot_no?: number; coupon?: boolean; choice?: boolean } | null, icon: string) {
+  if (data?.coupon) return "🎉 마지막 단계 완성! 선물 쿠폰이 생겼어요.";
+  if (data?.choice) return `${icon} ${data.slot_no}번째 스티커! 아이가 STOP/GO를 고르는 중이에요.`;
+  return `${icon} ${data?.slot_no}번째 스티커를 줬어요!`;
+}
 
 const fmtDate = (d: string) => {
   const dt = new Date(`${d}T00:00:00`);
@@ -45,13 +52,14 @@ export function Inbox({
   const kidKey = kidIds.join(",");
   const [reqs, setReqs] = useState<Req[]>([]);
   const [routines, setRoutines] = useState<Routine[]>([]);
+  const [choosing, setChoosing] = useState<{ kid_id: string; choice_at: number }[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
   const [loaded, setLoaded] = useState(false);
 
   const load = useCallback(async () => {
     const sb = getSupabase();
-    const [r, rt] = await Promise.all([
+    const [r, rt, ch] = await Promise.all([
       sb
         .from("submissions")
         .select("id, kid_id, date, submitted_at")
@@ -64,10 +72,17 @@ export function Inbox({
         .in("kid_id", kidIds)
         .eq("is_active", true)
         .order("sort_order"),
+      sb
+        .from("boards")
+        .select("kid_id, choice_at")
+        .in("kid_id", kidIds)
+        .is("completed_at", null)
+        .not("choice_at", "is", null),
     ]);
     const list = (r.data ?? []) as Req[];
     setReqs(list);
     setRoutines((rt.data ?? []) as Routine[]);
+    setChoosing((ch.data ?? []) as { kid_id: string; choice_at: number }[]);
     onCount(list.length);
     setLoaded(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -87,7 +102,7 @@ export function Inbox({
     setMsg("");
     const { data, error } = await getSupabase().rpc("approve_submission", { p_id: id });
     if (error) setMsg(errMsg(error.message));
-    else setMsg(data?.coupon ? "🎉 30개 완성! 쿠폰이 생겼어요." : `⭐ ${data?.slot_no}번째 스티커를 줬어요!`);
+    else setMsg(doneMessage(data, "⭐"));
     setBusy(null);
     load();
   };
@@ -100,7 +115,7 @@ export function Inbox({
     setMsg("");
     const { data, error } = await getSupabase().rpc("give_bonus_sticker", { p_kid: kid.id, p_note: note });
     if (error) setMsg(errMsg(error.message));
-    else setMsg(data?.coupon ? "🎉 30개 완성! 쿠폰이 생겼어요." : `🎁 ${data?.slot_no}번째 보너스 스티커를 줬어요!`);
+    else setMsg(doneMessage(data, "🎁"));
     setBusy(null);
   };
 
@@ -121,6 +136,15 @@ export function Inbox({
   return (
     <div className="space-y-3">
       {msg && <p className="rounded-2xl bg-sky-100 p-3 text-base">{msg}</p>}
+      {choosing.map((c) => {
+        const k = kids.find((x) => x.id === c.kid_id);
+        return (
+          <p key={c.kid_id} className="rounded-2xl bg-amber-100 p-3 text-base">
+            🎁 {k?.avatar} {k?.name}가 스티커 {c.choice_at}개를 모았어요. STOP(선물 받기)/GO(더 모으기)를 고르는
+            중이에요. 고를 때까지 새 스티커는 줄 수 없어요.
+          </p>
+        );
+      })}
       <button
         disabled={busy === "bonus"}
         onClick={giveBonus}

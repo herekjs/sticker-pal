@@ -4,11 +4,12 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import type { Session } from "@supabase/supabase-js";
 import { getSupabase, hasSupabase, idToEmail } from "@/lib/supabase";
-import { ROLE_EMOJI, ROLE_LABEL, type Role } from "@/lib/types";
+import { ROLE_EMOJI, ROLE_LABEL, type RewardTier, type Role } from "@/lib/types";
 import { Inbox } from "./Inbox";
 import { RoutineEditor } from "./RoutineEditor";
 import { CouponManager } from "./CouponManager";
 import { KidLinkCard } from "./KidLinkCard";
+import { TierEditor } from "./TierEditor";
 
 export interface Me {
   id: string;
@@ -20,6 +21,7 @@ export interface KidRow {
   name: string;
   avatar: string;
   view_token: string;
+  reward_tiers: RewardTier[];
 }
 
 type Tab = "inbox" | "routines" | "coupons" | "settings";
@@ -140,7 +142,7 @@ function Dashboard({ userId }: { userId: string }) {
     setMe(p as Me);
     const { data: k } = await sb
       .from("kids")
-      .select("id, name, avatar, view_token")
+      .select("id, name, avatar, view_token, reward_tiers")
       .eq("family_id", p.family_id)
       .order("created_at");
     setKids((k ?? []) as KidRow[]);
@@ -349,6 +351,7 @@ function Settings({ kids, onChanged }: { kids: KidRow[]; onChanged: () => void }
         <div key={k.id} className="space-y-4">
           {kids.length > 1 && <h2 className="text-2xl">{k.avatar} {k.name}</h2>}
           <ProfileEditor key={`${k.id}-${k.name}-${k.avatar}`} kid={k} onChanged={onChanged} />
+          <TierEditor key={`${k.id}-${JSON.stringify(k.reward_tiers)}`} kid={k} onChanged={onChanged} />
           <KidLinkCard kid={k} onChanged={onChanged} />
         </div>
       ))}

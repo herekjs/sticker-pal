@@ -9,6 +9,7 @@ import { StickerBoard } from "./StickerBoard";
 import { ThemePicker } from "./ThemePicker";
 import { Celebration, type CelebrationInfo } from "./Celebration";
 import { CouponTab } from "./CouponTab";
+import { ChoiceScreen } from "./ChoiceScreen";
 
 type Tab = "today" | "board" | "coupon";
 const TOKEN_KEY = "sticker-kid-token";
@@ -27,7 +28,14 @@ export default function KidApp({ token }: { token: string }) {
     if (p) {
       const theme = v.themes.find((t) => t.id === v.board?.theme_id);
       if (v.coupons.length > p.coupons) {
-        setCelebration({ kind: "coupon", role: null, emoji: "🎟️" });
+        const c = v.coupons[0];
+        setCelebration({
+          kind: "coupon",
+          role: null,
+          emoji: "🎟️",
+          giftName: c?.tier_name,
+          count: c?.tier_count,
+        });
         setTab("coupon");
       } else if (v.stickers.length > p.stickers) {
         const last = v.stickers[v.stickers.length - 1];
@@ -99,6 +107,7 @@ export default function KidApp({ token }: { token: string }) {
   const doneCount = view.routines.filter((r) => r.done).length;
   const total = view.routines.length;
   const unusedCoupons = view.coupons.filter((c) => !c.used_at).length;
+  const choiceAt = view.board?.choice_at ?? null;
 
   const toggle = (id: string, done: boolean) => {
     if (locked) return;
@@ -151,9 +160,10 @@ export default function KidApp({ token }: { token: string }) {
                           run(api.view);
                         },
                         fill: () => {
-                          demoFastForward(29);
+                          demoFastForward();
                           run(api.view);
                         },
+                        give: () => run(() => api.demoGive!("레고 블록 🧱")),
                       }
                     : null
                 }
@@ -202,6 +212,16 @@ export default function KidApp({ token }: { token: string }) {
       </nav>
 
       <AnimatePresence>
+        {choiceAt != null && view.board && (
+          <ChoiceScreen
+            key="choice"
+            count={choiceAt}
+            tier={view.board.tiers.find((t) => t.count === choiceAt)}
+            next={view.board.tiers.find((t) => t.count > choiceAt)}
+            emoji={theme?.emoji ?? "⭐"}
+            onChoose={(c) => run(() => api.choose(c))}
+          />
+        )}
         {celebration && <Celebration info={celebration} onClose={() => setCelebration(null)} />}
       </AnimatePresence>
     </Shell>
@@ -221,6 +241,7 @@ interface DemoControls {
   bonus: (role: Role) => void;
   nextDay: () => void;
   fill: () => void;
+  give: () => void;
 }
 
 function TodayTab({
@@ -349,7 +370,10 @@ function TodayTab({
               🌅 내일이 됐어요
             </button>
             <button className="rounded-2xl bg-violet-400 py-2 text-white" onClick={demo.fill}>
-              ⏩ 스티커 29개 채우기
+              ⏩ 다음 선물 직전까지 채우기
+            </button>
+            <button className="col-span-2 rounded-2xl bg-amber-400 py-2 text-white" onClick={demo.give}>
+              🎁 부모: 첫 쿠폰 “레고 블록” 선물 기록
             </button>
           </div>
         </div>

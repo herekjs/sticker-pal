@@ -10,6 +10,9 @@ export interface CelebrationInfo {
   role: Role | null;
   emoji: string;
   note?: string | null;
+  /** 쿠폰 축하일 때 선물 이름/개수 */
+  giftName?: string | null;
+  count?: number | null;
 }
 
 export function Celebration({ info, onClose }: { info: CelebrationInfo; onClose: () => void }) {
@@ -48,7 +51,7 @@ export function Celebration({ info, onClose }: { info: CelebrationInfo; onClose:
         transition={{ delay: 0.7, type: "spring" }}
       >
         {isCoupon
-          ? "장난감 쿠폰이 생겼어요!"
+          ? `${info.giftName ?? "선물"} 쿠폰이 생겼어요!`
           : info.kind === "bonus"
             ? `${who}가 보너스 스티커를 줬어요!`
             : `${who}가 승인했어요!`}
@@ -60,7 +63,7 @@ export function Celebration({ info, onClose }: { info: CelebrationInfo; onClose:
         transition={{ delay: 1.1 }}
       >
         {isCoupon
-          ? "🎉 30개를 다 모았어! 최고야! 🎉"
+          ? `🎉 스티커 ${info.count ?? ""}개를 모았어! 최고야! 🎉`
           : info.kind === "bonus" && info.note
             ? `🎁 “${info.note}”`
             : "스티커가 붙었어요 ✨"}

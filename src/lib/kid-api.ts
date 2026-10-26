@@ -1,13 +1,16 @@
 import { getSupabase } from "./supabase";
-import type { KidView, Role } from "./types";
+import { DEFAULT_TIERS, type KidView, type Role } from "./types";
 
 export interface KidApi {
   view(): Promise<KidView>;
   toggle(routineId: string, done: boolean): Promise<KidView>;
   pickTheme(themeId: string): Promise<KidView>;
+  /** 중간 단계에서 STOP(선물 받기) / GO(더 모으기) */
+  choose(choice: "stop" | "go"): Promise<KidView>;
   /** 데모 모드에서만 존재: 부모 승인을 흉내냄 */
   demoApprove?(role: Role): Promise<KidView>;
   demoBonus?(role: Role): Promise<KidView>;
+  demoGive?(note: string): Promise<KidView>;
 }
 
 export const DEMO_TOKEN = "demo";
@@ -27,6 +30,7 @@ function realApi(token: string): KidApi {
     toggle: (routineId, done) =>
       call("kid_toggle", { p_token: token, p_routine: routineId, p_done: done }),
     pickTheme: (themeId) => call("kid_pick_theme", { p_token: token, p_theme: themeId }),
+    choose: (choice) => call("kid_choose", { p_token: token, p_choice: choice }),
   };
 }
 
@@ -60,18 +64,41 @@ function freshDemo(): KidView {
   };
 }
 
-function completeIfFull(v: KidView) {
-  if (!v.board || v.stickers.length < v.board.size) return;
-  v.coupons.unshift({ id: "c" + Date.now(), title: "장난감 1개", issued_at: new Date().toISOString(), used_at: null });
+function closeBoard(v: KidView, count: number) {
+  const tier = v.board?.tiers.find((t) => t.count === count);
+  v.coupons.unshift({
+    id: "c" + Date.now(),
+    title: tier ? `${tier.name} (${count}개)` : "선물",
+    issued_at: new Date().toISOString(),
+    used_at: null,
+    tier_name: tier?.name ?? null,
+    tier_count: count,
+    gift_note: null,
+  });
   v.board = null;
   v.stickers = [];
+}
+
+/** 스티커가 붙은 직후: 마지막 단계면 쿠폰, 중간 단계면 STOP/GO 선택 대기 */
+function finishSticker(v: KidView) {
+  if (!v.board) return;
+  const n = v.stickers.length;
+  if (n >= v.board.size) closeBoard(v, n);
+  else if (v.board.tiers.some((t) => t.count === n)) v.board.choice_at = n;
 }
 
 function demoApi(): KidApi {
   const load = (): KidView => {
     try {
       const raw = localStorage.getItem(DEMO_KEY);
-      if (raw) return JSON.parse(raw) as KidView;
+      if (raw) {
+        const v = JSON.parse(raw) as KidView;
+        if (v.board && !v.board.tiers) {
+          v.board.tiers = DEFAULT_TIERS;
+          v.board.choice_at = null;
+        }
+        return v;
+      }
     } catch {}
     return freshDemo();
   };
@@ -99,22 +126,44 @@ function demoApi(): KidApi {
     async pickTheme(themeId) {
       const v = load();
       if (v.board && v.stickers.length) return save(v);
-      v.board = { id: "b" + Date.now(), theme_id: themeId, size: 30 };
+      v.board = {
+        id: "b" + Date.now(),
+        theme_id: themeId,
+        size: DEFAULT_TIERS[DEFAULT_TIERS.length - 1].count,
+        tiers: DEFAULT_TIERS,
+        choice_at: null,
+      };
+      return save(v);
+    },
+    async choose(choice) {
+      const v = load();
+      if (!v.board || v.board.choice_at == null) return save(v);
+      if (choice === "go") v.board.choice_at = null;
+      else closeBoard(v, v.board.choice_at);
+      return save(v);
+    },
+    async demoGive(note) {
+      const v = load();
+      const c = v.coupons.find((x) => !x.used_at);
+      if (c) {
+        c.used_at = new Date().toISOString();
+        c.gift_note = note;
+      }
       return save(v);
     },
     async demoApprove(role) {
       const v = load();
-      if (!v.board || v.submission?.status !== "pending") return save(v);
+      if (!v.board || v.board.choice_at != null || v.submission?.status !== "pending") return save(v);
       const slot = v.stickers.length + 1;
       v.stickers.push({ slot_no: slot, date: v.today, role, kind: "routine", note: null });
       v.submission = { status: "approved", reject_note: null };
       v.waiting_days = 0;
-      completeIfFull(v);
+      finishSticker(v);
       return save(v);
     },
     async demoBonus(role) {
       const v = load();
-      if (!v.board) return save(v);
+      if (!v.board || v.board.choice_at != null) return save(v);
       v.stickers.push({
         slot_no: v.stickers.length + 1,
         date: v.today,
@@ -122,7 +171,7 @@ function demoApi(): KidApi {
         kind: "bonus",
         note: "동생 잘 돌봐줬어!",
       });
-      completeIfFull(v);
+      finishSticker(v);
       return save(v);
     },
   };
@@ -140,14 +189,25 @@ export function demoNextDay() {
   } catch {}
 }
 
-export function demoFastForward(n: number) {
+/** 데모: 다음 선물 단계 직전까지 스티커를 채움 */
+export function demoFastForward() {
   try {
     const raw = localStorage.getItem(DEMO_KEY);
     const v = raw ? (JSON.parse(raw) as KidView) : freshDemo();
-    if (!v.board) v.board = { id: "b" + Date.now(), theme_id: "dino", size: 30 };
+    if (!v.board) {
+      v.board = {
+        id: "b" + Date.now(),
+        theme_id: "dino",
+        size: DEFAULT_TIERS[DEFAULT_TIERS.length - 1].count,
+        tiers: DEFAULT_TIERS,
+        choice_at: null,
+      };
+    }
+    if (v.board.choice_at != null) return;
+    const next = v.board.tiers.find((t) => t.count > v.stickers.length)?.count ?? v.board.size;
     const roles: Role[] = ["mom", "dad"];
-    for (let i = 0; i < n && v.stickers.length < v.board.size - 1; i++) {
-      const slot = v.stickers.length + 1;
+    for (let i = v.stickers.length; i < next - 1; i++) {
+      const slot = i + 1;
       v.stickers.push({
         slot_no: slot,
         date: `2026-01-${String(slot).padStart(2, "0")}`,

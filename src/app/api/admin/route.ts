@@ -191,7 +191,9 @@ async function deleteFamily(body: Record<string, unknown>) {
   const prof = await sb.from("profiles").select("id").eq("family_id", familyId);
   const userIds = (prof.data ?? []).map((p) => p.id as string);
 
-  // 가족을 먼저 지우면 아이/루틴/스티커/쿠폰/프로필이 함께 삭제됨
+  // 아이를 먼저 지우면 루틴/스티커/쿠폰/승인 기록이 함께 삭제되고, 그 뒤 가족과 프로필을 지움
+  const delKids = await sb.from("kids").delete().eq("family_id", familyId);
+  if (delKids.error) return fail(delKids.error.message, 500);
   const del = await sb.from("families").delete().eq("id", familyId);
   if (del.error) return fail(del.error.message, 500);
   for (const uid of userIds) await sb.auth.admin.deleteUser(uid);
